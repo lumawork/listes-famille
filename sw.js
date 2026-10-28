@@ -1,6 +1,6 @@
 'use strict';
 const PREFIX='notre-maison-'+encodeURIComponent(self.registration.scope)+'-';
-const CACHE=PREFIX+'1.2.0';
+const CACHE=PREFIX+'1.2.1';
 const ASSETS=['./','./index.html','./style.css','./config.js','./supabase.min.js','./dynamic-core.js',
   './assets/app.js','./assets/avatar-presets.png','./icon-192.png','./icon-512.png','./icon.svg','./favicon.svg','./manifest.webmanifest'];
 const SOUND=new Map();
