@@ -79,8 +79,19 @@ const hm = (v: Any) =>
     hour: "2-digit",
     minute: "2-digit",
   }).format(new Date(v));
+// A whole-day mission is due at 00:00: show its reminder time, or the day only.
 const dueText = (o: Any) =>
-  day(o.due) === day()
+  o.spec?.dueType === "day" && o.due === o.original_due
+    ? (day(o.due) === day()
+        ? "Aujourd’hui"
+        : new Intl.DateTimeFormat("fr-FR", {
+            timeZone: "Europe/Paris",
+            day: "numeric",
+            month: "short",
+          }).format(new Date(o.due))) +
+      " · " +
+      (o.spec.reminderTime || "dans la journée")
+    : day(o.due) === day()
     ? "Aujourd’hui · " + hm(o.due)
     : new Intl.DateTimeFormat("fr-FR", {
         timeZone: "Europe/Paris",
