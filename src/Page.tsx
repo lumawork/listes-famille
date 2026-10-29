@@ -1,3 +1,5 @@
+import MissionForm from "./MissionForm";
+import ScreenSettings from "./ScreenSettings";
 import {
   post,
   rpc,
@@ -380,6 +382,7 @@ export default function Page() {
     [audio, setAudio] = useState(false),
     [pos, setPos] = useState(0),
     [editor, setEditor] = useState(false),
+    [guidedSteps, setGuidedSteps] = useState(false),
     [history, setHistory] = useState<Any[]>([]),
     [draft, setDraft] = useState<Any>(null),
     [importData, setImportData] = useState<Any>(null),
@@ -557,12 +560,12 @@ export default function Page() {
     return () => clearInterval(idleRef.current);
   }, [modal, editor, cameraLock, s?.config?.idleSeconds]);
   useEffect(() => {
-    if (!modal) {
+    if (!modal && !editor) {
       const active = parentUnlocked();
       lockParent();
       if (active) { setS(demoSnapshot()); setDemo(true); setSync("loading"); }
     }
-  }, [modal]);
+  }, [modal, editor]);
   function beep() {
     const a = audioContext.current;
     if (!a) return;
@@ -670,6 +673,7 @@ export default function Page() {
   function open(name: string, p: Any = null) {
     if (name === "settings") configVersion.current = s.revision;
     if (name === "camera") setCameraGood(false);
+    if (name === "steps") setGuidedSteps(false);
     setSelected(p);
     setDraft(null);
     setGrant(null);
@@ -678,6 +682,7 @@ export default function Page() {
     setModal(name);
   }
   async function doAction(action: string, o: Any) {
+    if(action === "complete" && o.spec.steps?.length){open("steps",o);return;}
     try {
       let data: Any = { id: o.id, version: o.version };
       if (action === "reschedule") {
@@ -892,6 +897,7 @@ export default function Page() {
               {editor ? "L’atelier de vos missions" : "Les missions du moment"}
             </span>
             <div>
+              {editor && <button className="text-button" onClick={()=>{setEditor(false);setModal("");}}>Terminer la gestion</button>}
               <button
                 className="text-button"
                 onClick={() => location.assign(missionsUrl)}
@@ -979,8 +985,13 @@ export default function Page() {
                               <Icon size={18} />
                               {title}
                             </h3>
-                            {items.map((o: Any) => {
+                            {items.sort((a: Any, b: Any) =>
+                              (a.spec.ui?.listId || "general").localeCompare(b.spec.ui?.listId || "general") || Date.parse(a.due) - Date.parse(b.due)
+                            ).map((o: Any) => {
                               const I = taskIcon(o.title);
+                              const previous = items[items.indexOf(o) - 1];
+                              const listId = o.spec.ui?.listId || "general";
+                              const listStart = !previous || (previous.spec.ui?.listId || "general") !== listId;
                               return (
                                 <div className="task" key={o.id}>
                                   <button
@@ -992,7 +1003,9 @@ export default function Page() {
                                     <Check size={18} />
                                   </button>
                                   <div className="task-copy">
+                                    {listStart && <small className="mission-list-label">{o.spec.ui?.icon || "🌿"} {o.spec.ui?.title || "Mes missions"}</small>}
                                     <strong>{o.title}</strong>
+                                    {o.spec.steps?.length > 0 && <small>{o.spec.steps.filter((st:Any)=>o.spec.stepDone?.[st.id]).length} / {o.spec.steps.length} étapes · toucher pour ouvrir</small>}
                                     <span>
                                       {dueText(o)}
                                       {o.spec.mode === "relative"
@@ -1044,17 +1057,8 @@ export default function Page() {
                               <span>
                                 {d.title}
                                 <small>
-                                  {d.spec.mode === "relative"
-                                    ? "Après validation"
-                                    : "Calendrier fixe"}{" "}
-                                  · {d.spec.every}{" "}
-                                  {d.spec.unit === "weeks"
-                                    ? "sem."
-                                    : d.spec.unit === "hours"
-                                      ? "h"
-                                      : d.spec.unit === "minutes"
-                                        ? "min"
-                                        : "j"}
+                                  {d.spec.mode === "none" ? "Sans date · dans la gestion" :
+                                    (d.spec.mode === "relative" ? "Après validation" : d.spec.mode === "once" ? "Une fois" : "Calendrier fixe") + " · " + d.spec.every + " " + (d.spec.unit === "weeks" ? "sem." : d.spec.unit === "hours" ? "h" : d.spec.unit === "minutes" ? "min" : "j")}
                                 </small>
                               </span>
                               {allowed && (
@@ -1064,6 +1068,7 @@ export default function Page() {
                               )}
                               <button
                                 disabled={!allowed}
+                                hidden={d.spec.mode === "none"}
                                 aria-label={"Mettre en pause " + d.title}
                                 onClick={() =>
                                   mutate("edit", {
@@ -1237,7 +1242,7 @@ export default function Page() {
         </div>
       </footer>
       <div className="app-foot">
-        <span>Notre Maison · V1.2.1</span>
+        <span>Notre Maison · V1.4</span>
         <button onClick={() => open("diagnostic")}>
           {demo
             ? "Explorer l’aperçu"
@@ -1393,224 +1398,27 @@ export default function Page() {
         </Modal>
       )}
       {(modal === "new" || modal === "edit") && (
-        <Modal
-          title={
-            modal === "edit" ? "Modifier cette routine" : "Une nouvelle mission"
-          }
-          close={() => setModal("")}
-        >
-          <form
-            onSubmit={async (e) => {
-              e.preventDefault();
-              let fd = new FormData(e.currentTarget),
-                spec = {
-                  ...(selected?.spec || {}),
-                  mode: fd.get("mode"),
-                  every: Number(fd.get("every")),
-                  unit: fd.get("unit"),
-                  firstDue: fd.get("firstDue"),
-                  period: fd.get("period"),
-                  reminder: fd.get("reminder") === "on",
-                  reminderTime: fd.get("reminderTime"),
-                  periodStart: fd.get("periodStart"),
-                  periodEnd: fd.get("periodEnd"),
-                  reminderDelay: Number(fd.get("reminderDelay")),
-                  reminderCount: Number(fd.get("reminderCount")),
-                  days: fd.getAll("days").map(Number),
-                };
-              try {
-                await mutate(modal === "edit" ? "edit" : "create", {
-                  id: selected?.id,
-                  version: selected?.version,
-                  replaceSchedule: modal === "edit",
-                  person: fd.get("person"),
-                  title: fd.get("title"),
-                  spec,
-                });
-                if (!demo) setModal("");
-              } catch {}
-            }}
-          >
-            <label>
-              Pour qui ?
-              <select
-                name="person"
-                defaultValue={selected?.person || selected?.id || people[0]?.id}
-              >
-                {people.map((p: Any) => (
-                  <option value={p.id} key={p.id}>
-                    {p.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              La mission
-              <input
-                name="title"
-                defaultValue={selected?.title || ""}
-                placeholder="Ex. Aller aux poules"
-                maxLength={500}
-                required
-              />
-            </label>
-            <div className="form-row">
-              <label>
-                Récurrence
-                <select
-                  name="mode"
-                  defaultValue={selected?.spec?.mode || "relative"}
-                >
-                  <option value="relative">Après la dernière validation</option>
-                  <option value="fixed">À dates fixes</option>
-                  <option value="once">Une seule fois</option>
-                </select>
-              </label>
-              <label>
-                Première échéance · Paris
-                <input
-                  name="firstDue"
-                  type="datetime-local"
-                  defaultValue={
-                    day(
-                      new Date(Date.now() + (modal === "edit" ? 86400000 : 0)),
-                    ) + "T18:00"
-                  }
-                  required
-                />
-              </label>
-            </div>
-            <div className="form-row">
-              <label>
-                Tous les
-                <input
-                  name="every"
-                  type="number"
-                  min={1}
-                  max={365}
-                  defaultValue={selected?.spec?.every || 7}
-                  required
-                />
-              </label>
-              <label>
-                Unité
-                <select
-                  name="unit"
-                  defaultValue={selected?.spec?.unit || "days"}
-                >
-                  <option value="minutes">Minutes</option>
-                  <option value="hours">Heures</option>
-                  <option value="days">Jours civils</option>
-                  <option value="weeks">Semaines</option>
-                </select>
-              </label>
-              <label>
-                Période
-                <select
-                  name="period"
-                  defaultValue={selected?.spec?.period || ""}
-                >
-                  <option value="">Heure exacte</option>
-                  <option value="morning">Matin · 06–12</option>
-                  <option value="afternoon">Après-midi · 12–18</option>
-                  <option value="evening">Soir · 18–22</option>
-                </select>
-              </label>
-            </div>
-            <div className="form-row">
-              <label>
-                Début de période personnalisé
-                <input
-                  name="periodStart"
-                  type="time"
-                  defaultValue={selected?.spec?.periodStart || ""}
-                />
-              </label>
-              <label>
-                Fin de période personnalisée
-                <input
-                  name="periodEnd"
-                  type="time"
-                  defaultValue={selected?.spec?.periodEnd || ""}
-                />
-              </label>
-            </div>
-            <label className="checkbox-label">
-              <input
-                name="reminder"
-                type="checkbox"
-                defaultChecked={selected?.spec?.reminder || false}
-              />{" "}
-              Rappel et relances douces
-            </label>
-            <label>
-              Heure de rappel facultative
-              <input
-                name="reminderTime"
-                type="time"
-                defaultValue={selected?.spec?.reminderTime || ""}
-              />
-            </label>
-            <div className="form-row">
-              <label>
-                Délai entre les relances
-                <select
-                  name="reminderDelay"
-                  defaultValue={selected?.spec?.reminderDelay || 15}
-                >
-                  {[5, 10, 15, 30, 60].map((n) => (
-                    <option key={n} value={n}>
-                      {n} minutes
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                Nombre de relances
-                <select
-                  name="reminderCount"
-                  defaultValue={selected?.spec?.reminderCount ?? 2}
-                >
-                  {[0, 1, 2, 3].map((n) => (
-                    <option key={n} value={n}>
-                      {n}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </div>
-            <fieldset>
-              <legend>Jours prévus · calendrier fixe</legend>
-              {["Dim.", "Lun.", "Mar.", "Mer.", "Jeu.", "Ven.", "Sam."].map(
-                (name, i) => (
-                  <label className="checkbox-label" key={i}>
-                    <input
-                      type="checkbox"
-                      name="days"
-                      value={i}
-                      defaultChecked={
-                        !selected?.spec?.days || selected.spec.days.includes(i)
-                      }
-                    />
-                    {name}
-                  </label>
-                ),
-              )}
-            </fieldset>
-            <small className="help">
-              En modification, choisis une nouvelle première échéance future ;
-              le calendrier à venir sera remplacé, les retards et réalisations
-              conservés. Sans heure distincte, le rappel utilise l’échéance. En
-              mode relatif, la prochaine date repart de la validation.
-            </small>
-            <button className="primary" disabled={busy}>
-              {modal === "edit"
-                ? "Remplacer le calendrier futur"
-                : "Ajouter la mission"}
-            </button>
-          </form>
+        <Modal title={modal === "edit" ? "Modifier la mission" : "Ajouter une mission"} close={() => setModal("")}>
+          {!demo && (s.apiVersion || 0) < 12 ? <p>Installer le complément Supabase V12 avant de créer les nouvelles missions.</p> :
+          <MissionForm people={s.config.people} person={selected?.person} definition={modal === "edit" ? selected : undefined} definitions={s.definitions} onSave={async data => {
+            await mutate(modal === "edit" ? "edit" : "create", {...data,...(modal === "edit" ? {id:selected.id,version:selected.version,replaceSchedule:data.replaceSchedule}:{})});setModal("");
+          }}/>}
         </Modal>
       )}
+      {modal === "steps" && (() => {
+        const occurrence=s.occurrences.find((o:Any)=>o.id===selected.id)||selected;
+        const steps=occurrence.spec.steps||[],done=occurrence.spec.stepDone||{};
+        return <Modal title={occurrence.title} close={()=>setModal("")}>
+          <p>{steps.filter((st:Any)=>done[st.id]).length} / {steps.length} étapes terminées</p>
+          <button type="button" onClick={()=>setGuidedSteps(!guidedSteps)}>{guidedSteps?"Voir toute la checklist":"Une étape à la fois"}</button>
+          {steps.every((st:Any)=>done[st.id])&&occurrence.status==="open"&&<button disabled={busy||!online} onClick={async()=>{try{await mutate("complete",{id:occurrence.id,version:occurrence.version});setModal("");}catch{}}}>Confirmer la fin de la mission</button>}
+          {steps.filter((st:Any)=>!guidedSteps||st===steps.find((x:Any)=>!done[x.id])).map((st:Any)=><label className="step-check" key={st.id}>
+            <input type="checkbox" checked={!!done[st.id]} disabled={busy||!online||occurrence.status!=="open"} onChange={async e=>{
+              try{const out=await mutate("step",{id:occurrence.id,version:occurrence.version,stepId:st.id,done:e.target.checked});if(out?.completed){setModal("");notify("Mission terminée, bravo !");}}catch{}
+            }}/><span>{st.time?st.time.replace(":"," h ")+" · ":""}{st.title}</span>
+          </label>)}
+        </Modal>;
+      })()}
       {modal === "task" && (
         <Modal title={selected.title} close={() => setModal("")}>
           <p>
@@ -1931,6 +1739,10 @@ export default function Page() {
                 } catch {}
               }}
             >
+              <div className="settings-actions">
+                <button type="button" onClick={()=>{setEditor(true);setModal("");}}>Gérer les missions sur cette tablette</button>
+                <button type="button" onClick={()=>open("new")}>Ajouter une mission</button>
+              </div>
               <div className="settings-grid">
                 <section>
                   <h3>
@@ -2290,28 +2102,10 @@ export default function Page() {
                 >
                   <Volume2 size={17} /> Notifications en arrière-plan
                 </button>
-                <button
-                  type="button"
-                  onClick={async () => {
-                    try {
-                      const w: any = navigator;
-                      if (w.wakeLock) {
-                        await w.wakeLock.request("screen");
-                        notify(
-                          "Maintien écran demandé. Le système peut le révoquer.",
-                        );
-                      } else
-                        notify(
-                          "Le maintien écran n’est pas disponible dans ce navigateur.",
-                        );
-                    } catch {
-                      notify("Maintien écran refusé par le système.");
-                    }
-                  }}
-                >
-                  Maintenir l’écran
-                </button>
+
               </div>
+              <hr />
+              <ScreenSettings />
               <hr />
               <div className="settings-actions">
                 <button type="button" onClick={() => open("access")}>
@@ -2320,9 +2114,7 @@ export default function Page() {
                 <button type="button" onClick={downloadExport}>
                   <Download size={17} /> Sauvegarder
                 </button>
-                <button type="button" onClick={() => open("import")}>
-                  <Upload size={17} /> Reprendre une sauvegarde
-                </button>
+
               </div>
             </form>
           )}
@@ -2413,8 +2205,7 @@ export default function Page() {
       {modal === "import" && (
         <Modal title="Reprendre les listes V10" close={() => setModal("")}>
           <p>
-            Dans Mes Missions, ouvre « Missions synchronisées » puis « Reprendre
-            mes listes V10 ». Choisis une seule liste et vérifie son aperçu, sa
+            Dans Mes Missions, ouvre « Mon atelier », puis « Administration · reprise des listes V10 ». Choisis une seule liste et vérifie son aperçu, sa
             sauvegarde et la visibilité dans le foyer avant de confirmer.
           </p>
           <p>
