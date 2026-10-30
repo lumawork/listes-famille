@@ -722,7 +722,11 @@ export default function Page() {
     if(action === "complete" && o.spec.steps?.length){await completeAll(o);return;}
     try {
       let data: Any = { id: o.id, version: o.version };
-      if (action === "reschedule") {
+      if (action === "tomorrow") {
+        action = "reschedule";
+        data.due = day(+NOW() + 86400000) + "T" + hm(o.due);
+        data.reason = "Reporté à demain";
+      } else if (action === "reschedule") {
         const due = prompt(
           "Nouvelle échéance (heure de Paris), AAAA-MM-JJTHH:MM",
           day() + "T18:00",
@@ -1456,8 +1460,9 @@ export default function Page() {
           <button type="button" onClick={()=>setGuidedSteps(!guidedSteps)}>{guidedSteps?"Voir toute la checklist":"Une étape à la fois"}</button>
           {occurrence.status==="open"&&<div className="action-list">
             <button className="primary" disabled={busy||!online} onClick={()=>completeAll(occurrence)}><Check /> {steps.every((st:Any)=>done[st.id])?"Confirmer la fin de la mission":"Tout cocher et terminer"}</button>
-            {allowed&&<>
-              <button disabled={busy||!online} onClick={()=>doAction("reschedule",occurrence)}><Clock /> Reporter cette occurrence</button>
+            {<>
+              <button disabled={busy||!online} onClick={()=>doAction("tomorrow",occurrence)}><Clock /> Reporter à demain</button>
+              <button disabled={busy||!online} onClick={()=>doAction("reschedule",occurrence)}><Clock /> Reporter à une autre date</button>
               <button disabled={busy||!online} onClick={()=>doAction("skip",occurrence)}><ChevronRight /> Je passe mon tour</button>
               <button disabled={busy||!online} onClick={()=>doAction("cancel",occurrence)}><X /> Cette occurrence est devenue inutile</button>
             </>}
@@ -1484,10 +1489,14 @@ export default function Page() {
             >
               <Check /> C’est fait
             </button>
-            {allowed && (
+            {/* V12.2 : ouvert à tous, tracé côté serveur */}
+            {(
               <>
+                <button onClick={() => doAction("tomorrow", selected)}>
+                  <Clock /> Reporter à demain
+                </button>
                 <button onClick={() => doAction("reschedule", selected)}>
-                  <Clock /> Reporter cette occurrence
+                  <Clock /> Reporter à une autre date
                 </button>
                 <button onClick={() => doAction("skip", selected)}>
                   <ChevronRight /> Je passe mon tour
@@ -1553,6 +1562,7 @@ export default function Page() {
                   <th>À temps</th>
                   <th>En retard</th>
                   <th>Sautées</th>
+                  <th>Annulées</th>
                   <th>Non faites</th>
                   <th>À venir</th>
                   <th>Réalisation</th>
@@ -1580,6 +1590,7 @@ export default function Page() {
                         <td>{c.T}</td>
                         <td>{c.L}</td>
                         <td>{c.S}</td>
+                        <td>{c.C}</td>
                         <td>{c.N}</td>
                         <td>{c.A}</td>
                         <td>
