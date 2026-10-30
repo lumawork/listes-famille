@@ -26,7 +26,7 @@ const run=f=>vm.runInContext(fs.readFileSync(f,'utf8'),dom.getInternalVMContext(
 run('config.js');run('dynamic-core.js');run('mission-wizard.js');run('screen-policy.js');
 const bundle=fs.readFileSync('assets/app.js','utf8').replaceAll('import.meta.url',JSON.stringify('https://lumawork.github.io/listes-famille/assets/app.js'));
 vm.runInContext(bundle,dom.getInternalVMContext());await turn();await turn();
-w.document.querySelector('[aria-label="Valider Ma chambre"]').click();await turn();
+w.document.querySelector('[aria-label="Ouvrir les étapes de Ma chambre"]').click();await turn();assert(w.document.querySelector('[aria-label="Valider Ma chambre et toutes ses étapes"]'));
 assert(w.document.querySelector('dialog').textContent.includes('Lit'));const guided=[...w.document.querySelectorAll('dialog button')].find(b=>b.textContent==='Une étape à la fois');guided.click();await turn();assert.equal(w.document.querySelectorAll('dialog .step-check').length,1);w.document.querySelector('dialog .step-check input').click();await turn();w.document.querySelector('dialog .step-check input').click();await turn();assert.equal(mission.status,'done');
 w.document.querySelector('[aria-label="Paramètres"]').click();await turn();
 let form=[...w.document.querySelectorAll('dialog form')].find(f=>f.textContent.includes('Déverrouiller les paramètres'));assert(form);

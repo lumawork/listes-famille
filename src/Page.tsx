@@ -692,8 +692,34 @@ export default function Page() {
     lastTouch.current = Date.now();
     setModal(name);
   }
+  // The task check completes every remaining step, then the mission (the last step completes it server-side).
+  async function completeAll(o: Any) {
+    const left = (o.spec.steps || []).filter((st: Any) => !o.spec.stepDone?.[st.id]);
+    if (!left.length || demo) {
+      try { await mutate("complete", { id: o.id, version: o.version }); setModal(""); } catch {}
+      return;
+    }
+    if (busy) return;
+    setBusy(true);
+    try {
+      if (!online || !navigator.onLine)
+        throw Error("Hors connexion : aucune modification envoyée.");
+      let version = o.version;
+      for (const st of left) {
+        await rpc("step", { id: o.id, version, stepId: st.id, done: true, requestId: crypto.randomUUID() });
+        version++;
+      }
+      setModal("");
+      notify("Mission terminée, bravo !");
+    } catch (e) {
+      notify(errorText(e));
+    } finally {
+      await refresh().catch(() => {});
+      setBusy(false);
+    }
+  }
   async function doAction(action: string, o: Any) {
-    if(action === "complete" && o.spec.steps?.length){open("steps",o);return;}
+    if(action === "complete" && o.spec.steps?.length){await completeAll(o);return;}
     try {
       let data: Any = { id: o.id, version: o.version };
       if (action === "reschedule") {
@@ -1008,15 +1034,21 @@ export default function Page() {
                                   <button
                                     className="check-task"
                                     disabled={busy || !online}
-                                    aria-label={"Valider " + o.title}
+                                    aria-label={"Valider " + o.title + (o.spec.steps?.length ? " et toutes ses étapes" : "")}
                                     onClick={() => doAction("complete", o)}
                                   >
                                     <Check size={18} />
                                   </button>
-                                  <div className="task-copy">
+                                  <div
+                                    className={"task-copy" + (o.spec.steps?.length ? " opens-steps" : "")}
+                                    role={o.spec.steps?.length ? "button" : undefined}
+                                    tabIndex={o.spec.steps?.length ? 0 : undefined}
+                                    aria-label={o.spec.steps?.length ? "Ouvrir les étapes de " + o.title : undefined}
+                                    onClick={() => o.spec.steps?.length && open("steps", o)}
+                                  >
                                     {listStart && <small className="mission-list-label">{o.spec.ui?.icon || "🌿"} {o.spec.ui?.title || "Mes missions"}</small>}
                                     <strong>{o.title}</strong>
-                                    {o.spec.steps?.length > 0 && <small>{o.spec.steps.filter((st:Any)=>o.spec.stepDone?.[st.id]).length} / {o.spec.steps.length} étapes · toucher pour ouvrir</small>}
+                                    {o.spec.steps?.length > 0 && <small>{o.spec.steps.filter((st:Any)=>o.spec.stepDone?.[st.id]).length} / {o.spec.steps.length} étapes · toucher le texte pour ouvrir</small>}
                                     <span>
                                       {dueText(o)}
                                       {o.spec.mode === "relative"
@@ -1422,7 +1454,14 @@ export default function Page() {
         return <Modal title={occurrence.title} close={()=>setModal("")}>
           <p>{steps.filter((st:Any)=>done[st.id]).length} / {steps.length} étapes terminées</p>
           <button type="button" onClick={()=>setGuidedSteps(!guidedSteps)}>{guidedSteps?"Voir toute la checklist":"Une étape à la fois"}</button>
-          {steps.every((st:Any)=>done[st.id])&&occurrence.status==="open"&&<button disabled={busy||!online} onClick={async()=>{try{await mutate("complete",{id:occurrence.id,version:occurrence.version});setModal("");}catch{}}}>Confirmer la fin de la mission</button>}
+          {occurrence.status==="open"&&<div className="action-list">
+            <button className="primary" disabled={busy||!online} onClick={()=>completeAll(occurrence)}><Check /> {steps.every((st:Any)=>done[st.id])?"Confirmer la fin de la mission":"Tout cocher et terminer"}</button>
+            {allowed&&<>
+              <button disabled={busy||!online} onClick={()=>doAction("reschedule",occurrence)}><Clock /> Reporter cette occurrence</button>
+              <button disabled={busy||!online} onClick={()=>doAction("skip",occurrence)}><ChevronRight /> Je passe mon tour</button>
+              <button disabled={busy||!online} onClick={()=>doAction("cancel",occurrence)}><X /> Cette occurrence est devenue inutile</button>
+            </>}
+          </div>}
           {steps.filter((st:Any)=>!guidedSteps||st===steps.find((x:Any)=>!done[x.id])).map((st:Any)=><label className="step-check" key={st.id}>
             <input type="checkbox" checked={!!done[st.id]} disabled={busy||!online||occurrence.status!=="open"} onChange={async e=>{
               try{const out=await mutate("step",{id:occurrence.id,version:occurrence.version,stepId:st.id,done:e.target.checked});if(out?.completed){setModal("");notify("Mission terminée, bravo !");}}catch{}
