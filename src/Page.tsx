@@ -16,6 +16,14 @@ import {
   lockParent,
   parentUnlocked,
 } from "./client";
+import {
+  boardRows,
+  personStats,
+  gauge,
+  readRulesOpen,
+  writeRulesOpen,
+  TOOLS,
+} from "./tablet";
 const C = window.MissionsDynamicCore;
 import React, { useEffect, useRef, useState, useCallback } from "react";
 import {
@@ -62,6 +70,9 @@ import {
   Save,
   UserRound,
   ClipboardList,
+  Menu,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 type Any = any;
 let serverOffset = 0;
@@ -171,30 +182,6 @@ function Avatar({ p, size = 56 }: { p: Any; size?: number }) {
       role="img"
       aria-label={"Avatar de " + p.name}
     />
-  );
-}
-function Ring({
-  done,
-  total,
-  color = "var(--green)",
-  small = false,
-}: {
-  done: number;
-  total: number;
-  color?: string;
-  small?: boolean;
-}) {
-  return (
-    <span
-      className={"ring " + (small ? "small" : "")}
-      style={{
-        background: `conic-gradient(${color} ${total ? (done / total) * 100 : 0}%, #ffffff99 0)`,
-      }}
-    >
-      <span>
-        {done}/{total}
-      </span>
-    </span>
   );
 }
 function Modal({
@@ -344,37 +331,6 @@ function counters(rows: Any[]) {
   }
   return c;
 }
-function feedback(p: Any, c: Any, tone: string) {
-  if (tone === "discreet") return "";
-  if (!c.D) return "Une journée à ton rythme";
-  const n = c.T + c.L;
-  if (tone === "soft")
-    return n === c.D
-      ? "Merci pour toutes ces petites attentions"
-      : n
-        ? "Chaque petit geste compte"
-        : "Un petit pas quand tu es prêt";
-  const texts =
-    n === c.D
-      ? [
-          "Mission accomplie, sourire compris !",
-          "La maison te dit merci",
-          "Gardien des petites victoires",
-        ]
-      : n / c.D >= 0.5
-        ? [
-            "Ninja des petits pas",
-            "L’équipage avance",
-            "Super pouvoir : persévérer",
-          ]
-        : [
-            "L’aventure commence",
-            "Un premier pas, ça compte",
-            "Le capitaine prend son élan",
-          ];
-  let hash = [...(day() + p.id)].reduce((a, c) => a + c.charCodeAt(0), 0);
-  return texts[hash % texts.length];
-}
 export default function Page() {
   const [s, setS] = useState<Any>(null),
     [demo, setDemo] = useState(true),
@@ -397,7 +353,10 @@ export default function Page() {
     [history, setHistory] = useState<Any[]>([]),
     [draft, setDraft] = useState<Any>(null),
     [importData, setImportData] = useState<Any>(null),
-    [grant, setGrant] = useState<Any>(null);
+    [grant, setGrant] = useState<Any>(null),
+    [tools, setTools] = useState(false),
+    [statsFor, setStatsFor] = useState<string | null>(null),
+    [rulesOpen, setRulesOpen] = useState(() => readRulesOpen(window.localStorage));
   const rail = useRef<HTMLDivElement>(null),
     lastTouch = useRef(Date.now()),
     audioContext = useRef<AudioContext | null>(null),
@@ -559,6 +518,12 @@ export default function Page() {
     clearInterval(idleRef.current);
     idleRef.current = setInterval(() => {
       if (
+        tools &&
+        !modal &&
+        Date.now() - lastTouch.current > (s.config.idleSeconds || 120) * 1000
+      )
+        setTools(false);
+      if (
         (modal || editor) &&
         (!cameraLock || parentUnlocked()) &&
         Date.now() - lastTouch.current > (s.config.idleSeconds || 120) * 1000 &&
@@ -569,7 +534,7 @@ export default function Page() {
       }
     }, 1000);
     return () => clearInterval(idleRef.current);
-  }, [modal, editor, cameraLock, s?.config?.idleSeconds]);
+  }, [modal, editor, tools, cameraLock, s?.config?.idleSeconds]);
   useEffect(() => {
     if (!modal && !editor) {
       const active = parentUnlocked();
@@ -811,6 +776,17 @@ export default function Page() {
       notify(errorText(e));
     }
   }
+  // Menu tools: the panel closes before the tool opens, so the tasks are what remains afterwards.
+  function pickTool(key: string) {
+    setTools(false);
+    lastTouch.current = Date.now();
+    shortcut(key);
+  }
+  function toggleRules() {
+    const next = !rulesOpen;
+    setRulesOpen(next);
+    writeRulesOpen(window.localStorage, next);
+  }
   async function shortcut(key: string) {
     if (key === "camera") {
       open("camera");
@@ -913,6 +889,23 @@ export default function Page() {
           >
             <Settings />
           </button>
+          <button
+            className={"menu-button" + (cameraLock ? " camera-locked" : "")}
+            aria-label="Ouvrir les outils"
+            aria-expanded={tools}
+            aria-controls="tools-panel"
+            onClick={() => {
+              lastTouch.current = Date.now();
+              setTools(!tools);
+            }}
+          >
+            <Menu size={28} />
+            {cameraLock && (
+              <span className="lock-badge" aria-hidden="true">
+                <LockKeyhole size={14} />
+              </span>
+            )}
+          </button>
         </div>
       </header>
       {demo && (
@@ -964,26 +957,20 @@ export default function Page() {
             }}
           >
             {people.map((p: Any) => {
-              let rows = all.filter(
-                (o: Any) =>
-                  o.person === p.id &&
-                  o.status === "open" &&
-                  !o.spec.paused &&
-                  (new Date(o.visible) <= clock || new Date(o.ends) <= clock),
-              );
-              let overdue = rows
-                  .filter((o: Any) => new Date(o.ends) <= clock)
-                  .sort(
-                    (a: Any, b: Any) => +new Date(a.ends) - +new Date(b.ends),
-                  ),
-                now = rows.filter(
-                  (o: Any) =>
-                    new Date(o.ends) > clock && new Date(o.due) <= clock,
-                ),
-                upcoming = rows.filter(
-                  (o: Any) =>
-                    new Date(o.due) > clock && new Date(o.ends) > clock,
-                );
+              const board = boardRows(all, p.id, clock),
+                rows = board.open,
+                overdue = board.overdue,
+                now = board.now,
+                upcoming = board.upcoming,
+                g = gauge(all, p.id, clock),
+                statsOpen = statsFor === p.id,
+                st = personStats(all, p.id, clock),
+                color =
+                  p.id === "annabelle"
+                    ? "#ef5487"
+                    : p.id === "papa"
+                      ? "#1386ce"
+                      : "#39a780";
               let count = daily(p),
                 n = count.T + count.L;
               return (
@@ -997,22 +984,66 @@ export default function Page() {
                     >
                       <Avatar p={p} size={64} />
                     </button>
-                    <div>
-                      <h2>{p.name}</h2>
-                      <p>Ses petits pas du jour</p>
-                    </div>
-                    <Ring
-                      done={n}
-                      total={count.D}
-                      color={
-                        p.id === "annabelle"
-                          ? "#ef5487"
-                          : p.id === "papa"
-                            ? "#1386ce"
-                            : "#39a780"
+                    <button
+                      className="person-toggle"
+                      aria-expanded={statsOpen}
+                      aria-controls={"stats-" + p.id}
+                      aria-label={
+                        (statsOpen ? "Masquer" : "Afficher") +
+                        " les statistiques de " +
+                        p.name
                       }
-                    />
+                      onClick={() => setStatsFor(statsOpen ? null : p.id)}
+                    >
+                      <span className="person-name">
+                        <h2>{p.name}</h2>
+                        <p>Ses petits pas du jour</p>
+                      </span>
+                      <span className="person-gauge">
+                        <strong style={{ color }}>
+                          {g.done}/{g.total}
+                        </strong>
+                        <span className="gauge-track">
+                          <span
+                            style={{ width: g.pct + "%", background: color }}
+                          />
+                        </span>
+                      </span>
+                      {statsOpen ? <ChevronUp size={24} /> : <ChevronDown size={24} />}
+                    </button>
                   </div>
+                  {statsOpen && (
+                    <div
+                      className="person-stats"
+                      id={"stats-" + p.id}
+                      role="region"
+                      aria-label={"Statistiques du jour de " + p.name}
+                    >
+                      <small>Aujourd’hui</small>
+                      <div>
+                        {[
+                          ["Faites", st.done],
+                          ["Reportées", st.postponed],
+                          ["Passées", st.skipped],
+                          ["Annulées", st.cancelled],
+                        ].map(([label, v]: Any) => (
+                          <span className="stat" key={label}>
+                            <strong style={{ color }}>{v}</strong>
+                            <em>{label}</em>
+                          </span>
+                        ))}
+                      </div>
+                      <button
+                        className="text-button"
+                        onClick={() => {
+                          setFilter(p.id);
+                          open("stats");
+                        }}
+                      >
+                        Historique détaillé <ChevronRight size={14} />
+                      </button>
+                    </div>
+                  )}
                   <div className="task-scroll">
                     {[
                       [overdue, "En retard", TriangleAlert, "late"],
@@ -1092,6 +1123,30 @@ export default function Page() {
                             Ajouter une mission
                           </button>
                         )}
+                      </div>
+                    )}
+                    {board.done.length > 0 && (
+                      <div className="task-group done">
+                        <h3>
+                          <Check size={18} />
+                          Faites aujourd’hui
+                        </h3>
+                        {board.done.map((o: Any) => (
+                          <div className="task done" key={o.id}>
+                            <span
+                              className="check-task checked"
+                              role="img"
+                              aria-label={o.title + " : faite"}
+                              style={{ background: color, borderColor: color }}
+                            >
+                              <Check size={18} />
+                            </span>
+                            <div className="task-copy">
+                              <strong>{o.title}</strong>
+                              <span>Faite à {hm(o.completed)}</span>
+                            </div>
+                          </div>
+                        ))}
                       </div>
                     )}
                     {editor && (
@@ -1187,109 +1242,96 @@ export default function Page() {
             </button>
           </nav>
         </section>
-        <aside className="rules-panel">
-          <div className="rules-heading">
-            <span>
-              <Home size={30} />
-            </span>
-            <div>
-              <h2>Nos réflexes</h2>
-              <p>Les règles de vie</p>
+      </div>
+      <section
+        className={"rules-banner" + (rulesOpen ? " open" : "")}
+        aria-label="Nos réflexes à la maison"
+      >
+        <button
+          className="rules-toggle"
+          aria-expanded={rulesOpen}
+          aria-controls="rules-content"
+          onClick={toggleRules}
+        >
+          <Home size={26} />
+          <strong>Nos réflexes à la maison</strong>
+          <span>{rulesOpen ? "Masquer" : "Afficher"}</span>
+          {rulesOpen ? <ChevronDown size={26} /> : <ChevronUp size={26} />}
+        </button>
+        {rulesOpen && (
+          <div className="rules-content" id="rules-content">
+            <div className="rules-grid">
+              {s.config.rules.map((r: string, i: number) => {
+                const I = [Shirt, Sparkles, Handshake, Heart, Leaf][i % 5];
+                return (
+                  <div className="rule" key={i}>
+                    <I size={24} />
+                    <span>{r}</span>
+                  </div>
+                );
+              })}
             </div>
-          </div>
-          <div className="rules-scroll">
-            {s.config.rules.map((r: string, i: number) => {
-              const I = [Shirt, Sparkles, Handshake, Heart, Leaf][i % 5];
-              return (
-                <div className="rule" key={i}>
-                  <I size={27} />
-                  <span>{r}</span>
+            {ritual && (
+              <div className="ritual">
+                <div>
+                  <Moon size={24} />
+                  <strong>{ritual.title}</strong>
+                  <span>{ritual.minutes} min</span>
                 </div>
+                <p>{ritual.text}</p>
+                {ritual.enabled && (
+                  <small>
+                    <Clock size={12} /> Rappel à {ritual.time}
+                  </small>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+      </section>
+      {tools && (
+        <div
+          className="tools-overlay"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setTools(false);
+          }}
+        >
+          <aside
+            className="tools-panel"
+            id="tools-panel"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Outils"
+          >
+            <h2>Outils</h2>
+            {TOOLS.map((key) => {
+              const I = icons[key];
+              return (
+                <button
+                  className={"tool " + key}
+                  key={key}
+                  onClick={() => pickTool(key)}
+                >
+                  <I size={30} />
+                  <span>
+                    {labels[key]}
+                    {key === "camera" && (
+                      <small>
+                        {cameraLock ? "Verrouillée" : "Verrouillable"}
+                      </small>
+                    )}
+                  </span>
+                </button>
               );
             })}
-          </div>
-          {ritual && (
-            <div className="ritual">
-              <div>
-                <Moon size={24} />
-                <strong>{ritual.title}</strong>
-                <span>{ritual.minutes} min</span>
-              </div>
-              <p>{ritual.text}</p>
-              {ritual.enabled && (
-                <small>
-                  <Clock size={12} /> Rappel à {ritual.time}
-                </small>
-              )}
-            </div>
-          )}
-        </aside>
-        <aside className="shortcut-rail" aria-label="Accès rapides">
-          <span>
-            Accès
-            <br />
-            rapides
-          </span>
-          {Object.entries(icons).map(([key, I]) => (
-            <button
-              title={labels[key]}
-              aria-label={labels[key]}
-              className={"shortcut " + key}
-              key={key}
-              onClick={() => shortcut(key)}
-            >
-              <I size={28} />
+            <button className="tools-back" onClick={() => setTools(false)}>
+              Retour aux tâches
             </button>
-          ))}
-        </aside>
-      </div>
-      <footer className="daily-panel">
-        <button className="daily-heading" onClick={() => open("stats")}>
-          <Sun size={30} />
-          <span>
-            <strong>Les petites victoires du jour</strong>
-            <small>Chaque petit geste compte.</small>
-            <em>
-              Voir les statistiques <ChevronRight size={13} />
-            </em>
-          </span>
-        </button>
-        <div className="daily-cards">
-          {people.map((p: Any) => {
-            let c = daily(p);
-            return (
-              <button
-                className={"daily-card " + p.id}
-                key={p.id}
-                onClick={() => {
-                  setFilter(p.id);
-                  open("stats");
-                }}
-              >
-                <Avatar p={p} size={43} />
-                <div>
-                  <strong>{p.name}</strong>
-                  <small>{feedback(p, c, s.config.tone)}</small>
-                </div>
-                <Ring
-                  done={c.T + c.L}
-                  total={c.D}
-                  small
-                  color={
-                    p.id === "annabelle"
-                      ? "#ef5487"
-                      : p.id === "papa"
-                        ? "#1386ce"
-                        : "#39a780"
-                  }
-                />
-              </button>
-            );
-          })}
+          </aside>
         </div>
-      </footer>
+      )}
       <div className="app-foot">
-        <span>Notre Maison · V1.4</span>
+        <span>Notre Maison · V1.4.4</span>
         <button onClick={() => open("diagnostic")}>
           {demo
             ? "Explorer l’aperçu"

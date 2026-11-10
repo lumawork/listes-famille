@@ -1,3 +1,15 @@
+# V1.4.4 — écran tablette allégé
+
+Écran tablette uniquement. Aucun changement sur Mes Missions ni en base (aucun SQL).
+
+- Outils : la barre d’icônes de droite est supprimée. Un bouton menu (56 px) en haut à droite ouvre un panneau latéral « Outils » : agenda, courses, localisation, volets, caméra. Choisir un outil referme le panneau ; « Retour aux tâches » aussi ; le panneau se referme seul après la durée d’inactivité réglée. L’accès aux paramètres reste le bouton engrenage.
+- Caméra : le verrouillage « Maintenir la surveillance » reste disponible. Tant qu’il est actif, la fenêtre caméra ne se ferme pas par inactivité, affiche « Maintien verrouillé sur cet appareil », et le bouton menu porte un cadenas ; le panneau d’outils indique « Verrouillée ».
+- Statistiques : la barre « Les petites victoires du jour » du bas est supprimée. Toucher l’entête d’une liste affiche les chiffres du jour de cette personne seulement (Faites, Reportées, Passées, Annulées) ; un second toucher les replie, et ouvrir une autre personne replie la précédente. Le lien « Historique détaillé » ouvre le tableau existant filtré sur cette personne. L’entête garde une jauge « x/y » (faites aujourd’hui / faites aujourd’hui + restant à faire).
+- « Nos réflexes à la maison » : bandeau en bas de l’écran, replié par défaut, dépliable et repliable. L’état est mémorisé dans le navigateur de la tablette (clé locale `nm-tablet-rules-open`), sans effet sur les autres appareils. Le rituel du soir s’affiche dans le bandeau déplié.
+- Tâches terminées : elles restent visibles, barrées, dans « Faites aujourd’hui » en bas de la liste, pendant le jour de leur validation (fuseau Europe/Paris), puis disparaissent le lendemain. Les retards restent en haut, du plus ancien au plus récent.
+- Limite connue : une tâche n’apparaît dans « Faites aujourd’hui » que si le serveur l’inclut dans l’instantané de la tablette ; une ancienne échéance validée aujourd’hui pourrait ne pas y figurer selon la fenêtre renvoyée par le moteur existant.
+- Tests : nouveau `tests/tablet.test.cjs` (fuseau de Paris et passage de minuit, ordre des retards, stats par personne, mémoire locale du bandeau, liste des outils) et vérifications DOM ajoutées à `tests/ui.cjs` (absence de la barre d’icônes et des stats du bas, panneau d’outils et retour aux tâches, verrouillage caméra visible, stats repliables par entête, bandeau réflexes, tâche faite du jour visible et tâche plus ancienne masquée). Cache du service worker passé en 1.4.4.
+
 # V12.3 / V1.4.3 — reporter, passer son tour, supprimer : ouvert à tous
 
 - Base (appliqué en production, `backend/004-report-ouvert-a-tous.sql`) : report, tour sauté et annulation d’une occurrence possibles pour tous, y compris la tablette associée et le compte enfant. La correction (réouverture) reste réservée aux adultes. Chaque action est tracée (auteur, appareil, avant/après, motif). Ancienne fonction sauvegardée dans `nm_private.function_backups`.
